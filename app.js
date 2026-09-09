@@ -169,7 +169,7 @@ const HELP_TEXTS={
   cleanstreak:['Racha días limpios','Cuántos días seguidos llevas sin cometer errores de ejecución.'],
   edgeclean:['Edge limpio vs con error','Compara tu expectancy cuando operas limpio contra cuando cometes errores. Te demuestra en números cuánto te penalizan los fallos.'],
   flagbreakdown:['Desglose por tipo de error','Cuántas veces cometes cada error (FOMO, cierre temprano...) y cuánto R te cuesta cada uno. Te dice cuál atacar primero.'],
-  planadher:['Adherencia al plan','Compara tu expectancy cuando cumples las 6 reglas de tu plan vs cuando te saltas alguna. Demuestra si tu plan funciona.'],
+  planadher:['Adherencia al plan','Compara tu expectancy cuando cumples todas las reglas de tu plan vs cuando te saltas alguna. Demuestra si tu plan funciona.'],
   // Rendimiento
   avgwin:['Avg win','Tu ganancia media en los trades ganadores, en R.'],
   avgloss:['Avg loss','Tu pérdida media en los trades perdedores, en R.'],
@@ -308,7 +308,7 @@ function dayDisciplineBreakdown(trades){
   const order=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
   return order.filter(k=>map[k]).map(k=>{
     const ts=map[k];
-    const errRate = ts.length? ts.filter(t=>(t.flags||[]).some(f=>f!=='clean')).length/ts.length*100 : 0;
+    const errRate = ts.length? ts.filter(t=>(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa')).length/ts.length*100 : 0;
     return { key:k, n:ts.length, exp:expectancy(ts), wr:winrate(ts), errRate };
   });
 }
@@ -328,7 +328,7 @@ function monthBreakdown(trades){
     .sort((a,b)=>map[a].sortKey-map[b].sortKey)
     .map(k=>{
       const ts=map[k].ts;
-      const errRate = ts.length? ts.filter(t=>(t.flags||[]).some(f=>f!=='clean')).length/ts.length*100 : 0;
+      const errRate = ts.length? ts.filter(t=>(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa')).length/ts.length*100 : 0;
       return { key:k, n:ts.length, exp:expectancy(ts), wr:winrate(ts), r:ts.reduce((s,t)=>s+(t.realizedR||0),0), errRate };
     });
 }
@@ -365,7 +365,7 @@ function optimalRR(trades){
 function disciplineCost(trades){
   let lostR = 0, lost$ = 0, flaggedCount = 0, cleanCount = 0;
   trades.forEach(t=>{
-    const hasError = (t.flags||[]).some(f=>f!=='clean');
+    const hasError = (t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa');
     if(hasError){
       flaggedCount++;
       // R perdido = lo que el plan habria dado menos lo realizado (solo si el plan era mejor)
@@ -382,7 +382,7 @@ function disciplineCost(trades){
 // Tasa de disciplina (% trades sin errores)
 function disciplineRate(trades){
   if(!trades.length) return 100;
-  const clean = trades.filter(t=> !(t.flags||[]).some(f=>f!=='clean')).length;
+  const clean = trades.filter(t=> !(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa')).length;
   return clean/trades.length*100;
 }
 
@@ -396,7 +396,7 @@ function cleanDayStreak(trades){
   const days = Object.keys(byDay).sort().reverse();
   let streak=0;
   for(const d of days){
-    const dirty = byDay[d].some(t=>(t.flags||[]).some(f=>f!=='clean'));
+    const dirty = byDay[d].some(t=>(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa'));
     if(dirty) break;
     streak++;
   }
@@ -610,7 +610,7 @@ function autoInsights(T){
   }
   // flags más comunes
   const flagCount={};
-  T.forEach(t=>(t.flags||[]).forEach(f=>{if(f!=='clean'){flagCount[f]=(flagCount[f]||0)+1}}));
+  T.forEach(t=>(t.flags||[]).forEach(f=>{if(f!=='clean'&&f!=='good_pa'){flagCount[f]=(flagCount[f]||0)+1}}));
   const topFlag = Object.entries(flagCount).sort((a,b)=>b[1]-a[1])[0];
   if(topFlag) ins.push({t:`Tu error más repetido: <b>${FLAG_LABELS[topFlag[0]]||topFlag[0]}</b> (${topFlag[1]} veces). Ponlo en tu checklist pre-sesión.`,c:'warn'});
 
@@ -626,10 +626,10 @@ function renderDiscipline(v, T){
   const dr = disciplineRate(T);
   // por flag
   const flagStats={};
-  Object.keys(FLAG_LABELS).forEach(f=>{ if(f!=='clean') flagStats[f]={n:0,lostR:0}; });
+  Object.keys(FLAG_LABELS).forEach(f=>{ if(f!=='clean'&&f!=='good_pa') flagStats[f]={n:0,lostR:0}; });
   T.forEach(t=>{
     (t.flags||[]).forEach(f=>{
-      if(f!=='clean' && flagStats[f]){
+      if(f!=='clean'&&f!=='good_pa' && flagStats[f]){
         flagStats[f].n++;
         const diff=(t.plannedR||0)-(t.realizedR||0);
         if(diff>0) flagStats[f].lostR+=diff;
@@ -639,8 +639,8 @@ function renderDiscipline(v, T){
   const flagRows=Object.entries(flagStats).filter(([k,s])=>s.n>0).sort((a,b)=>b[1].lostR-a[1].lostR);
 
   // disciplina vs resultado: ¿los trades limpios rinden mejor?
-  const clean=T.filter(t=>!(t.flags||[]).some(f=>f!=='clean'));
-  const dirty=T.filter(t=>(t.flags||[]).some(f=>f!=='clean'));
+  const clean=T.filter(t=>!(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa'));
+  const dirty=T.filter(t=>(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa'));
 
   v.innerHTML=`
     <div class="section-title">Disciplina & errores</div>
@@ -838,7 +838,7 @@ function renderPerformance(v, T){
         let cleanCount=0, cleanReachedTP=0;   // limpios (info neutra)
         let errCount=0, errCostR=0, errReachedTP=0;  // con error marcado
         withMfe.forEach(t=>{
-          const hasError=(t.flags||[]).some(f=>f!=='clean');
+          const hasError=(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa');
           const reachedTP = t.mfe >= (t.plannedR||0);
           const leftR = Math.max(0,(t.plannedR||0)-(t.realizedR||0));
           if(hasError){
@@ -1348,7 +1348,7 @@ function renderCalendar(v, T){
       byDay[day].pnl+=(t.pnl||0);
       byDay[day].r+=(t.realizedR||0);
       byDay[day].n++;
-      if((t.flags||[]).some(f=>f!=='clean')) byDay[day].dirty=true;
+      if((t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa')) byDay[day].dirty=true;
       const ph=tradePhase(t); if(ph) byDay[day].phases.add(ph);
     }
   });
@@ -1449,7 +1449,7 @@ function calDayDetail(dateStr){
       <div class="calc-out"><div class="label" style="font-size:10px;color:var(--ink-faint)">TRADES</div><div class="big">${dayTrades.length}</div></div>
     </div>
     ${dayTrades.map(t=>{
-      const errs=(t.flags||[]).filter(f=>f!=='clean');
+      const errs=(t.flags||[]).filter(f=>f!=='clean'&&f!=='good_pa');
       return `<div class="card" style="padding:12px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div><b>${t.symbol}</b> <span class="hint">${t.setup} · ${t.session}</span></div>
@@ -1477,8 +1477,8 @@ function lightbox(src){
    ============================================================ */
 let JOURNAL_FILTER = 'all';
 function renderJournal(v, T){
-  const filtered = JOURNAL_FILTER==='errors' ? T.filter(t=>(t.flags||[]).some(f=>f!=='clean')) :
-                   JOURNAL_FILTER==='clean' ? T.filter(t=>!(t.flags||[]).some(f=>f!=='clean')) : T;
+  const filtered = JOURNAL_FILTER==='errors' ? T.filter(t=>(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa')) :
+                   JOURNAL_FILTER==='clean' ? T.filter(t=>!(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa')) : T;
   v.innerHTML=`
     <div class="section-title">Journal</div>
     <div class="pill-row">
@@ -1489,7 +1489,7 @@ function renderJournal(v, T){
     <div class="table-wrap"><table>
       <thead><tr><th>Fecha</th><th>Símbolo</th><th>Setup</th><th>Sesión</th><th>Plan R</th><th>Real R</th><th>P&L</th><th>Estado</th><th>Flags</th><th></th></tr></thead>
       <tbody>${filtered.map(t=>{
-        const errs=(t.flags||[]).filter(f=>f!=='clean');
+        const errs=(t.flags||[]).filter(f=>f!=='clean'&&f!=='good_pa');
         return `<tr>
           <td>${t.date}</td>
           <td>${t.symbol||'—'}${(t.images&&t.images.length)?` <span title="${t.images.length} imagen(es)" style="opacity:.6">📎</span>`:''}</td>
@@ -1650,28 +1650,23 @@ const FLAG_LABELS={
   moved_stop:'Moví el stop',
   revenge:'Revenge trade',
   no_setup:'Sin setup válido',
-  oversized:'Sobre-dimensioné',
-  bad_analysis:'Error de análisis'
+  bad_analysis:'Error de análisis',
+  good_pa:'Buen PA'
 };
 // Plan de trading — checklist que aparece al registrar
 const PLAN_CHECKLIST=[
-  'Tener el DOL claro e ir solo a favor del DOL (Innegociable)',
-  'SL donde se invalide el trade',
-  'Tener rangos LTF (8h-2h) a favor',
-  'No tener rango contrario importante cerca',
-  'Tendencia a favor',
-  '1 SL por cuenta por día',
-  'Poner BE solo al llegar al primer objetivo o más (nunca antes)',
-  'Solo puedo cerrar antes si 2/3 pares han llegado ya al DOL o a un objetivo importante'
+  'Hemos identificado el bias (hay una razón para seguir en esa dirección)',
+  'Hemos tocado un key level (POC, Fair Value Gap, manipulación)',
+  'Buena entrada (ej. Inverse Fair Value Gap)',
+  'Buen PA'
 ];
 const SETUPS=['Setup A','Setup B','Setup C','Pares','Otro'];
 const SYMBOLS=['MNQ','MES','MYM','M2K','MGC','MCL','M6E','NQ','ES','YM','GC','CL','EURAUD','Otro'];
 const SESSIONS=['Londres (9-12)','London Lunch (12-15)','NY (15:30+)','Otra'];
-// Origen del movimiento (estructura CRT en NY)
+// Origen del movimiento
 const MOVE_TYPES={
-  open930:'Impulso apertura NY (9:30-10h)',
-  po3_4h:'PO3 vela 4h de las 10h (manipula y va al DOL)',
-  other:'Otro momento'
+  open930:'9:30 - 10:00',
+  open1000:'10:00 - 11:00'
 };
 
 function openTradeModal(){ tradeModal(); }
@@ -1815,35 +1810,10 @@ function tradeModal(t){
       <div class="field"><label>Sesión</label><select id="f_session">${SESSIONS.map(s=>`<option ${e.session===s?'selected':''}>${s}</option>`).join('')}</select></div>
     </div>
     <div class="field"><label>¿Dónde empezó el movimiento? <span class="hint">estructura CRT</span></label>
-      <select id="f_moveType" onchange="toggleMoveOther()">
+      <select id="f_moveType">
         <option value="" ${!e.moveType?'selected':''}>— no registrado —</option>
         ${Object.entries(MOVE_TYPES).map(([k,l])=>`<option value="${k}" ${e.moveType===k?'selected':''}>${l}</option>`).join('')}
       </select>
-      <input type="text" id="f_moveOther" placeholder="Especifica qué momento..." value="${e.moveOther||''}" style="margin-top:8px;display:none">
-    </div>
-    <div class="field"><label>¿Hubo entrada por SMT? <span class="hint">RS Scalp — si apareció el señal, entraras o no</span></label>
-      <select id="f_smt" onchange="toggleSmt()">
-        <option value="" ${!e.smt?'selected':''}>— no hubo / no registrado —</option>
-        <option value="yes" ${e.smt==='yes'?'selected':''}>Sí, apareció entrada por SMT</option>
-      </select>
-    </div>
-    <div id="f_smtDetails" style="display:none">
-      <div class="field-row">
-        <div class="field"><label>Resultado del SMT</label>
-          <select id="f_smtResult">
-            <option value="tp" ${e.smtResult==='tp'?'selected':''}>TP (habría ganado)</option>
-            <option value="sl" ${e.smtResult==='sl'?'selected':''}>SL (habría perdido)</option>
-            <option value="be" ${e.smtResult==='be'?'selected':''}>BE</option>
-          </select>
-        </div>
-        <div class="field"><label>Timing respecto apertura NY</label>
-          <select id="f_smtTiming">
-            <option value="before" ${e.smtTiming==='before'?'selected':''}>Antes de apertura (&lt;9:30)</option>
-            <option value="open" ${e.smtTiming==='open'?'selected':''}>En apertura (9:30-10:00)</option>
-            <option value="after" ${e.smtTiming==='after'?'selected':''}>Después (&gt;10:00)</option>
-          </select>
-        </div>
-      </div>
     </div>
     <div class="field-row">
       <div class="field"><label>Cuenta</label><select id="f_account" onchange="onAccountChange()"><option value="">— sin asignar —</option>${DB.accounts.map(a=>{
@@ -1855,6 +1825,7 @@ function tradeModal(t){
           <option value="" ${!e.phase?'selected':''}>— auto (según cuenta) —</option>
           <option value="eval" ${e.phase==='eval'?'selected':''}>Evaluación</option>
           <option value="funded" ${e.phase==='funded'?'selected':''}>Funded</option>
+          <option value="both" ${e.phase==='both'?'selected':''}>Ambas</option>
         </select>
       </div>
     </div>
@@ -1900,7 +1871,7 @@ function tradeModal(t){
     </div>
     <div class="field"><label>Flags de ejecución (marca lo que pasó)</label>
       <div class="chips" id="f_flags">
-        ${Object.entries(FLAG_LABELS).map(([k,l])=>`<button type="button" class="chip ${flags.includes(k)?(k==='clean'?'on good':'on'):''}" data-flag="${k}" onclick="toggleFlag('${k}')">${l}</button>`).join('')}
+        ${Object.entries(FLAG_LABELS).map(([k,l])=>`<button type="button" class="chip ${flags.includes(k)?((k==='clean'||k==='good_pa')?'on good':'on'):''}" data-flag="${k}" onclick="toggleFlag('${k}')">${l}</button>`).join('')}
       </div>
     </div>
     <div class="field"><label>Nota</label><textarea id="f_note" rows="2" placeholder="Contexto, qué viste, qué harías distinto...">${e.note||''}</textarea></div>
@@ -1929,8 +1900,6 @@ function tradeModal(t){
   $$('#f_plan input[type=checkbox]').forEach(c=>c.addEventListener('change',updatePlanCount));
   updatePlanCount();
   onRealizedRChange();
-  toggleMoveOther();
-  toggleSmt();
 }
 
 // Deduce el resultado a partir del R realizado (single source of truth)
@@ -1941,7 +1910,7 @@ function processMantra(t){
     // no-trade
     return "Avui no ha sigut necessari operar. Està súper bé. 🧘";
   }
-  const hasError=(t.flags||[]).some(f=>f!=='clean');
+  const hasError=(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa');
   const isLoss=t.result==='loss';
   if(!hasError){
     if(isLoss) return "Has operat i ha sigut stop, però has seguit el pla. Està súper bé. 💪";
@@ -1967,20 +1936,6 @@ function resultFromR(r){
   return 'be';
 }
 
-// Muestra el campo de texto libre solo si el origen del movimiento es "otro"
-function toggleMoveOther(){
-  const sel=$('#f_moveType');
-  const inp=$('#f_moveOther');
-  if(!sel||!inp) return;
-  inp.style.display = sel.value==='other' ? '' : 'none';
-}
-// Mostra els detalls de l'SMT només si hi ha hagut entrada
-function toggleSmt(){
-  const sel=$('#f_smt');
-  const box=$('#f_smtDetails');
-  if(!sel||!box) return;
-  box.style.display = sel.value==='yes' ? '' : 'none';
-}
 // Al cambiar de cuenta, autoseleccionar su fase actual (si el usuario no ha forzado una)
 function onAccountChange(){
   const acc=DB.accounts.find(a=>a.name===$('#f_account')?.value);
@@ -2092,7 +2047,7 @@ function toggleFlag(k){
   // refresh chips
   $$('#f_flags .chip').forEach(c=>{
     const fk=c.dataset.flag, on=$('#modalBg')._flags.includes(fk);
-    c.className='chip'+(on?(fk==='clean'?' on good':' on'):'');
+    c.className='chip'+(on?((fk==='clean'||fk==='good_pa')?' on good':' on'):'');
   });
 }
 function saveTrade(id){
@@ -2106,10 +2061,6 @@ function saveTrade(id){
     setup:$('#f_setup').value,
     session:$('#f_session').value,
     moveType:$('#f_moveType').value,
-    moveOther:$('#f_moveType').value==='other'?$('#f_moveOther').value.trim():'',
-    smt:$('#f_smt').value,
-    smtResult:$('#f_smt').value==='yes'?$('#f_smtResult').value:'',
-    smtTiming:$('#f_smt').value==='yes'?$('#f_smtTiming').value:'',
     account:$('#f_account').value,
     phase: $('#f_phase').value || (()=>{ const acc=DB.accounts.find(a=>a.name===$('#f_account').value); return acc? (acc.phase==='Funded'?'funded':'eval') : ''; })(),
     plannedR:parseFloat($('#f_plannedR').value)||0,
@@ -2481,21 +2432,21 @@ function buildAIReport(){
     L.push(`--- MÉTRICAS ${label} (${arr.length} trades) ---`);
     L.push(`Expectancy: ${fmtR(expectancy(arr))} | Win rate: ${pct(winrate(arr))} | Profit factor: ${profitFactor(arr)===Infinity?'∞':fmt(profitFactor(arr),2)}`);
     L.push(`R acumulado: ${fmtR(arr.reduce((s,t)=>s+(t.realizedR||0),0))} | P&L: ${fmt$(totalPnl(arr))}`);
-    const c=arr.filter(t=>!(t.flags||[]).some(f=>f!=='clean'));
+    const c=arr.filter(t=>!(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa'));
     L.push(`Disciplina: ${pct(arr.length?c.length/arr.length*100:0)} limpios`);
     L.push('');
   };
   phaseBlock('EVALUACIÓN', evalT);
   phaseBlock('FUNDED', fundedT);
   // Disciplina
-  const clean=T.filter(t=>!(t.flags||[]).some(f=>f!=='clean'));
-  const dirty=T.filter(t=>(t.flags||[]).some(f=>f!=='clean'));
+  const clean=T.filter(t=>!(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa'));
+  const dirty=T.filter(t=>(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa'));
   L.push('--- DISCIPLINA ---');
   L.push(`Tasa de disciplina: ${pct(T.length?clean.length/T.length*100:0)} (${clean.length} limpios / ${dirty.length} con error)`);
   L.push(`Expectancy trades limpios: ${fmtR(expectancy(clean))} | con error: ${fmtR(expectancy(dirty))}`);
   // errores por tipo
   const flagCount={};
-  T.forEach(t=>(t.flags||[]).forEach(f=>{ if(f!=='clean') flagCount[f]=(flagCount[f]||0)+1; }));
+  T.forEach(t=>(t.flags||[]).forEach(f=>{ if(f!=='clean'&&f!=='good_pa') flagCount[f]=(flagCount[f]||0)+1; }));
   if(Object.keys(flagCount).length){
     L.push('Errores por tipo: '+Object.entries(flagCount).map(([k,n])=>`${FLAG_LABELS[k]||k}: ${n}`).join(', '));
   }
@@ -2548,7 +2499,7 @@ function buildAIReport(){
     if(!isNaN(t.dolR)&&t.dolR!=null) parts.push('DOL@'+t.dolR+'R');
     if(t.moveType) parts.push('mov:'+(MOVE_TYPES[t.moveType]||t.moveType)+(t.moveOther?' ('+t.moveOther+')':''));
     if(t.smt==='yes') parts.push('SMT:'+t.smtResult+'/'+t.smtTiming);
-    const errs=(t.flags||[]).filter(f=>f!=='clean').map(f=>FLAG_LABELS[f]||f);
+    const errs=(t.flags||[]).filter(f=>f!=='clean'&&f!=='good_pa').map(f=>FLAG_LABELS[f]||f);
     if(errs.length) parts.push('FLAGS: '+errs.join('/'));
     else parts.push('limpio');
     L.push(parts.filter(Boolean).join(' | '));
