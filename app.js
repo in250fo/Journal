@@ -1667,7 +1667,8 @@ const FLAG_LABELS={
   moved_stop:'Moví el stop',
   revenge:'Revenge trade',
   no_setup:'Sin setup válido',
-  bad_analysis:'Error de análisis',
+    bad_analysis:'Error de análisis',
+     bad_pa:'Mal PA',
   good_pa:'Buen PA'
 };
 // Plan de trading — checklist que aparece al registrar
