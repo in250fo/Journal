@@ -47,15 +47,30 @@ const FIRM_PRESETS = {
     }
   },
 
-  // MyFundedFutures — 50K Builder (Max Drawdown EOD + Daily Drawdown). Micro scaling 10:1.
-  'MyFundedFutures': {
-    trailing:'eod',
-    plans:{
-      '50K Builder': { size:50000,
-        eval:{profitTarget:3000,drawdown:2000,trailLock:0,lockedFloor:0,dailyLoss:1000,maxMicro:40,maxMini:4,minDays:1,consistency:0,minDailyProfit:0,payoutCap:0},
-        funded:{profitTarget:0,drawdown:2000,trailLock:0,lockedFloor:0,dailyLoss:1000,maxMicro:40,maxMini:4,minDays:2,consistency:50,minDailyProfit:0,payoutCap:2000} }
-    }
-  },
+    // Alpha Futures — verificado en alpha-futures.com (planes Zero, Standard, Advanced). Trailing EOD.
+     'Alpha Futures': {
+            trailing:'eod',
+            plans:{
+                     'Zero 25K': { size:25000, eval:{profitTarget:1500,drawdown:1000,trailLock:0,lockedFloor:0,dailyLoss:500,maxMicro:10,maxMini:1,minDays:1,consistency:0,minDailyProfit:0,payoutCap:1000},
+                                                                 funded:{profitTarget:0,drawdown:1000,trailLock:0,lockedFloor:0,dailyLoss:500,maxMicro:10,maxMini:1,minDays:5,consistency:40,minDailyProfit:0,payoutCap:1000} },
+                     'Zero 50K': { size:50000, eval:{profitTarget:3000,drawdown:2000,trailLock:0,lockedFloor:0,dailyLoss:1000,maxMicro:30,maxMini:3,minDays:1,consistency:0,minDailyProfit:0,payoutCap:1500},
+                                                                 funded:{profitTarget:0,drawdown:2000,trailLock:0,lockedFloor:0,dailyLoss:1000,maxMicro:30,maxMini:3,minDays:5,consistency:40,minDailyProfit:0,payoutCap:1500} },
+                     'Zero 100K':{ size:100000,eval:{profitTarget:6000,drawdown:3000,trailLock:0,lockedFloor:0,dailyLoss:2000,maxMicro:60,maxMini:6,minDays:1,consistency:0,minDailyProfit:0,payoutCap:2500},
+                                                                 funded:{profitTarget:0,drawdown:3000,trailLock:0,lockedFloor:0,dailyLoss:2000,maxMicro:60,maxMini:6,minDays:5,consistency:40,minDailyProfit:0,payoutCap:2500} },
+                     'Standard 50K': { size:50000, eval:{profitTarget:3000,drawdown:2000,trailLock:0,lockedFloor:0,dailyLoss:0,maxMicro:50,maxMini:5,minDays:2,consistency:50,minDailyProfit:0,payoutCap:3000},
+                                                                         funded:{profitTarget:0,drawdown:2000,trailLock:0,lockedFloor:0,dailyLoss:1000,maxMicro:50,maxMini:5,minDays:5,consistency:40,minDailyProfit:0,payoutCap:3000} },
+                     'Standard 100K':{ size:100000,eval:{profitTarget:6000,drawdown:3000,trailLock:0,lockedFloor:0,dailyLoss:0,maxMicro:100,maxMini:10,minDays:2,consistency:50,minDailyProfit:0,payoutCap:4000},
+                                                                         funded:{profitTarget:0,drawdown:3000,trailLock:0,lockedFloor:0,dailyLoss:2000,maxMicro:100,maxMini:10,minDays:5,consistency:40,minDailyProfit:0,payoutCap:4000} },
+                     'Standard 150K':{ size:150000,eval:{profitTarget:9000,drawdown:4500,trailLock:0,lockedFloor:0,dailyLoss:0,maxMicro:150,maxMini:15,minDays:2,consistency:50,minDailyProfit:0,payoutCap:5000},
+                                                                         funded:{profitTarget:0,drawdown:4500,trailLock:0,lockedFloor:0,dailyLoss:3000,maxMicro:150,maxMini:15,minDays:5,consistency:40,minDailyProfit:0,payoutCap:5000} },
+                     'Advanced 50K': { size:50000, eval:{profitTarget:4000,drawdown:1750,trailLock:0,lockedFloor:0,dailyLoss:0,maxMicro:50,maxMini:5,minDays:3,consistency:40,minDailyProfit:0,payoutCap:15000},
+                                                                         funded:{profitTarget:0,drawdown:1750,trailLock:0,lockedFloor:0,dailyLoss:0,maxMicro:50,maxMini:5,minDays:5,consistency:0,minDailyProfit:0,payoutCap:15000} },
+                     'Advanced 100K':{ size:100000,eval:{profitTarget:8000,drawdown:3500,trailLock:0,lockedFloor:0,dailyLoss:0,maxMicro:100,maxMini:10,minDays:3,consistency:40,minDailyProfit:0,payoutCap:15000},
+                                                                         funded:{profitTarget:0,drawdown:3500,trailLock:0,lockedFloor:0,dailyLoss:0,maxMicro:100,maxMini:10,minDays:5,consistency:0,minDailyProfit:0,payoutCap:15000} },
+                     'Advanced 150K':{ size:150000,eval:{profitTarget:12000,drawdown:5250,trailLock:0,lockedFloor:0,dailyLoss:0,maxMicro:150,maxMini:15,minDays:3,consistency:40,minDailyProfit:0,payoutCap:15000},
+                                                                         funded:{profitTarget:0,drawdown:5250,trailLock:0,lockedFloor:0,dailyLoss:0,maxMicro:150,maxMini:15,minDays:5,consistency:0,minDailyProfit:0,payoutCap:15000} }
+            }
+     },
 
   // FundedNext Futures — 50K. Max Loss EOD, sin daily loss.
   'FundedNext': {
@@ -110,12 +125,14 @@ function load(){
       }
     });
     // migrar nombres de sesión antiguos a los nuevos
-    const SESSION_MIGRATION={
-      'Londres':'Londres (9-12)',
-      'NY':'NY (15:30+)',
-      'Asia':'Otra',
-      'Overlap':'Otra'
-    };
+        const SESSION_MIGRATION={
+                 'Londres (9-12)':'Londres',
+                 'London Lunch (12-15)':'Londres',
+                 'NY (15:30+)':'New York',
+                 'NY':'New York',
+                 'Overlap':'Londres',
+                 'Otra':'Asia'
+        };
     (base.trades||[]).forEach(t=>{
       if(t.session && SESSION_MIGRATION[t.session]) t.session=SESSION_MIGRATION[t.session];
     });
@@ -1207,7 +1224,7 @@ function renderROI(v, T){
         <button class="btn primary sm" onclick="openAccountModal()">+ Cuenta</button>
       </div>
     </div>
-    ${!accts.length?`<div class="empty"><div class="ico">▤</div><p class="hint">Sin cuentas. Añade una de tus firmas (LucidFlex, Topstep, MyFundedFutures, FundedNext...) y las reglas se cargan solas.</p><button class="btn primary" style="margin-top:14px" onclick="openAccountModal()">+ Añadir cuenta</button></div>`:
+    ${!accts.length?`<div class="empty"><div class="ico">▤</div><p class="hint">Sin cuentas. Añade una de tus firmas (LucidFlex, Topstep, Alpha Futures, FundedNext...) y las reglas se cargan solas.</p><button class="btn primary" style="margin-top:14px" onclick="openAccountModal()">+ Añadir cuenta</button></div>`:
     accts.map(a=>{
       const spec = planSpec(a.firm, a.plan, a.phase) || {};
       // Trades de esta cuenta. Si la cuenta es funded, solo cuentan los trades
@@ -1657,12 +1674,13 @@ const FLAG_LABELS={
 const PLAN_CHECKLIST=[
   'Hemos identificado el bias (hay una razón para seguir en esa dirección)',
   'Hemos tocado un key level (POC, Fair Value Gap, manipulación)',
+     'Manipulación (barrida de liquidez antes del giro)',
   'Buena entrada (ej. Inverse Fair Value Gap)',
   'Buen PA'
 ];
 const SETUPS=['Setup A','Setup B','Setup C','Pares','Otro'];
 const SYMBOLS=['MNQ','MES','MYM','M2K','MGC','MCL','M6E','NQ','ES','YM','GC','CL','EURAUD','Otro'];
-const SESSIONS=['Londres (9-12)','London Lunch (12-15)','NY (15:30+)','Otra'];
+const SESSIONS=['Asia','Londres','New York'];
 // Origen del movimiento
 const MOVE_TYPES={
   open930:'9:30 - 10:00',
@@ -1777,7 +1795,7 @@ function saveNoTrade(id){
 function deleteNoTrade(id){
   if(!confirm('¿Eliminar este registro?'))return;
   DB.noTradeDays=(DB.noTradeDays||[]).filter(d=>d.id!==id);
-  save(); closeModal(); render(); toast('Eliminat');
+    save(); closeModal(); render(); toast('Eliminado');
 }
 function editNoTrade(id){
   const nt=(DB.noTradeDays||[]).find(d=>d.id===id);
@@ -1829,6 +1847,15 @@ function tradeModal(t){
         </select>
       </div>
     </div>
+        <div class="field-row">
+              <div class="field"><label>Nivel de entrada <span class="hint">precio</span></label><input type="number" step="0.01" id="f_entryPrice" value="${e.entryPrice??''}" placeholder="ej. 29362" oninput="recalcLevels()"></div>
+                    <div class="field"><label>Nivel de salida <span class="hint">precio</span></label><input type="number" step="0.01" id="f_exitPrice" value="${e.exitPrice??''}" placeholder="ej. 29410" oninput="recalcLevels()"></div>
+                        </div>
+                            <div class="field-row">
+                                  <div class="field"><label>Nivel del TP <span class="hint">precio</span></label><input type="number" step="0.01" id="f_tpPrice" value="${e.tpPrice??''}" placeholder="ej. 29450" oninput="recalcLevels()"></div>
+                                        <div class="field"><label>Nivel del stop loss <span class="hint">precio</span></label><input type="number" step="0.01" id="f_slPrice" value="${e.slPrice??''}" placeholder="ej. 29320" oninput="recalcLevels()"></div>
+                                            </div>
+                                                <div class="hint" style="margin:-6px 0 12px">Rellena estos 4 niveles y el <b>R planificado</b> y el <b>R realizado</b> de abajo se calculan solos (los puedes editar a mano si lo prefieres).</div>
     <div class="field-row-3">
       <div class="field"><label>R planificado <span class="hint">tu objetivo</span></label><input type="number" id="f_plannedR" step="0.1" value="${e.plannedR??1.5}"></div>
       <div class="field"><label>R realizado <span class="hint">lo que sacaste</span></label><input type="number" id="f_realizedR" step="0.1" value="${e.realizedR??''}" oninput="onRealizedRChange()" placeholder="-1 / 0 / 1.5"></div>
@@ -1906,18 +1933,18 @@ function tradeModal(t){
 // Mantra de procés: reforça centrar-se en el procés, no en el resultat.
 // t = trade guardat (o null si és un no-trade)
 function processMantra(t){
-  if(!t){
-    // no-trade
-    return "Avui no ha sigut necessari operar. Està súper bé. 🧘";
-  }
-  const hasError=(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa');
-  const isLoss=t.result==='loss';
-  if(!hasError){
-    if(isLoss) return "Has operat i ha sigut stop, però has seguit el pla. Està súper bé. 💪";
-    return "Has operat i has seguit el pla de puta mare. 🔥";
-  } else {
-    return "Avui no ha estat del tot bé, però es millorarà. El procés per damunt del resultat. 🌱";
-  }
+     if(!t){
+            // no-trade
+            return "Hoy no ha hecho falta operar. Está genial. 🧘";
+     }
+     const hasError=(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa');
+     const isLoss=t.result==='loss';
+     if(!hasError){
+            if(isLoss) return "Has operado y ha sido stop, pero has seguido el plan. Está genial. 💪";
+            return "Has operado y has seguido el plan a la perfección. 🔥";
+     } else {
+            return "Hoy no ha salido del todo bien, pero irás mejorando. El proceso por encima del resultado. 🌱";
+     }
 }
 function showMantra(msg){
   const m=$('#mantra');
@@ -1934,6 +1961,26 @@ function resultFromR(r){
   if(r>0) return 'win';
   if(r<0) return 'loss';
   return 'be';
+}
+
+// Calcula R planificado y R realizado a partir de los 4 niveles de precio (entrada, salida, TP, SL)
+function recalcLevels(){
+     const entry=parseFloat($('#f_entryPrice')?.value);
+     const exit=parseFloat($('#f_exitPrice')?.value);
+     const tp=parseFloat($('#f_tpPrice')?.value);
+     const sl=parseFloat($('#f_slPrice')?.value);
+     const plannedEl=$('#f_plannedR');
+     const realizedEl=$('#f_realizedR');
+     if(!isNaN(entry) && !isNaN(sl) && entry!==sl){
+            const risk=Math.abs(entry-sl);
+            const isLong=sl<entry;
+            if(!isNaN(tp) && plannedEl) plannedEl.value=(Math.abs(tp-entry)/risk).toFixed(2);
+            if(!isNaN(exit) && realizedEl){
+                     const r = isLong ? (exit-entry)/risk : (entry-exit)/risk;
+                     realizedEl.value=r.toFixed(2);
+            }
+     }
+     onRealizedRChange();
 }
 
 // Al cambiar de cuenta, autoseleccionar su fase actual (si el usuario no ha forzado una)
@@ -2063,6 +2110,10 @@ function saveTrade(id){
     moveType:$('#f_moveType').value,
     account:$('#f_account').value,
     phase: $('#f_phase').value || (()=>{ const acc=DB.accounts.find(a=>a.name===$('#f_account').value); return acc? (acc.phase==='Funded'?'funded':'eval') : ''; })(),
+         entryPrice:parseFloat($('#f_entryPrice').value),
+         exitPrice:parseFloat($('#f_exitPrice').value),
+         tpPrice:parseFloat($('#f_tpPrice').value),
+         slPrice:parseFloat($('#f_slPrice').value),
     plannedR:parseFloat($('#f_plannedR').value)||0,
     realizedR:isNaN(realizedR)?0:realizedR,
     riskUSD:parseFloat($('#f_riskUSD').value)||0,
