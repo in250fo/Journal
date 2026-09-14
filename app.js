@@ -643,10 +643,10 @@ function renderDiscipline(v, T){
   const dr = disciplineRate(T);
   // por flag
   const flagStats={};
-  Object.keys(FLAG_LABELS).forEach(f=>{ if(f!=='clean'&&f!=='good_pa') flagStats[f]={n:0,lostR:0}; });
   T.forEach(t=>{
-    (t.flags||[]).forEach(f=>{
-      if(f!=='clean'&&f!=='good_pa' && flagStats[f]){
+         (t.flags||[]).forEach(f=>{
+                  if(f!=='clean'&&f!=='good_pa'){
+                             if(!flagStats[f]) flagStats[f]={n:0,lostR:0};
         flagStats[f].n++;
         const diff=(t.plannedR||0)-(t.realizedR||0);
         if(diff>0) flagStats[f].lostR+=diff;
@@ -689,7 +689,7 @@ function renderDiscipline(v, T){
       ${flagRows.length?`<div class="table-wrap" style="border:none"><table style="min-width:auto">
         <thead><tr><th>Error</th><th>Veces</th><th>R perdido</th><th>% de tus trades</th></tr></thead>
         <tbody>${flagRows.map(([k,s])=>`<tr>
-          <td style="font-family:var(--sans);font-weight:600">${FLAG_LABELS[k]}</td>
+                    <td style="font-family:var(--sans);font-weight:600">${FLAG_LABELS[k]||k}</td>
           <td>${s.n}</td>
           <td class="neg">-${fmt(s.lostR,2)}R</td>
           <td>${fmt(s.n/T.length*100,0)}%</td>
@@ -1899,7 +1899,7 @@ function tradeModal(t){
     </div>
     <div class="field"><label>Flags de ejecución (marca lo que pasó)</label>
       <div class="chips" id="f_flags">
-        ${Object.entries(FLAG_LABELS).map(([k,l])=>`<button type="button" class="chip ${flags.includes(k)?((k==='clean'||k==='good_pa')?'on good':'on'):''}" data-flag="${k}" onclick="toggleFlag('${k}')">${l}</button>`).join('')}
+                ${flagChipsHTML(flags)}
       </div>
     </div>
     <div class="field"><label>Nota</label><textarea id="f_note" rows="2" placeholder="Contexto, qué viste, qué harías distinto...">${e.note||''}</textarea></div>
@@ -2097,6 +2097,37 @@ function toggleFlag(k){
     const fk=c.dataset.flag, on=$('#modalBg')._flags.includes(fk);
     c.className='chip'+(on?((fk==='clean'||fk==='good_pa')?' on good':' on'):'');
   });
+}
+// Escapa texto libre para usarlo como valor de atributo HTML y como texto visible
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// Genera los chips de flags, incluyendo los flags personalizados ("Otro") ya añadidos
+function flagChipsHTML(flags){
+     const known=Object.entries(FLAG_LABELS).map(([k,l])=>`<button type="button" class="chip ${flags.includes(k)?((k==='clean'||k==='good_pa')?'on good':'on'):''}" data-flag="${k}" onclick="toggleFlag('${k}')">${l}</button>`).join('');
+     const custom=flags.filter(f=>!FLAG_LABELS[f]&&f!=='clean').map(f=>`<button type="button" class="chip on" data-flag="${escHtml(f)}" onclick="removeOtherFlag(this.dataset.flag)" title="Toca para quitar">${escHtml(f)} ✕</button>`).join('');
+     return known+custom+`<button type="button" class="chip" onclick="addOtherFlag()">+ Otro</button>`;
+}
+function addOtherFlag(){
+     const text=(prompt('¿Qué ha pasado?')||'').trim();
+     if(!text) return;
+     const isGood=confirm('¿Es algo que hiciste BIEN?\n\nAceptar = bueno (se guarda en la nota)\nCancelar = fue un error (se añade como flag)');
+     const fl=$('#modalBg')._flags;
+     if(isGood){
+            if(!fl.includes('good_pa')){ fl.push('good_pa'); const ci=fl.indexOf('clean'); if(ci>=0) fl.splice(ci,1); }
+            const noteEl=$('#f_note');
+            if(noteEl) noteEl.value=(noteEl.value?noteEl.value+'\n':'')+'✅ '+text;
+     } else if(!fl.includes(text)){
+            fl.push(text);
+            const ci=fl.indexOf('clean'); if(ci>=0) fl.splice(ci,1);
+     }
+     if(!fl.length) fl.push('clean');
+     $('#f_flags').innerHTML=flagChipsHTML(fl);
+}
+function removeOtherFlag(text){
+     const fl=$('#modalBg')._flags;
+     const i=fl.indexOf(text);
+     if(i>=0) fl.splice(i,1);
+     if(!fl.length) fl.push('clean');
+     $('#f_flags').innerHTML=flagChipsHTML(fl);
 }
 function saveTrade(id){
   const flags=$('#modalBg')._flags;
