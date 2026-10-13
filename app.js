@@ -136,6 +136,23 @@ function load(){
     (base.trades||[]).forEach(t=>{
       if(t.session && SESSION_MIGRATION[t.session]) t.session=SESSION_MIGRATION[t.session];
     });
+    // migrar MFE/MAE antiguos: si en el campo de R se escribió un PRECIO (ej. 30663), pasarlo a nivel de precio
+    // y calcular el R con la entrada y el SL. Un MAE negativo (ej. -1.1) se guarda en positivo (1.1R en contra).
+    (base.trades||[]).forEach(t=>{
+      const entry=parseFloat(t.entryPrice), sl=parseFloat(t.slPrice);
+      const ok=!isNaN(entry)&&!isNaN(sl)&&entry!==sl;
+      const looksPrice=v=>v!=null&&!isNaN(v)&&Math.abs(v)>=50&&ok&&Math.abs(v-entry)/Math.abs(entry)<0.2;
+      ['mfe','mae'].forEach(k=>{
+        const v=t[k];
+        if(looksPrice(v)){
+          if(t[k+'Price']==null||isNaN(t[k+'Price'])) t[k+'Price']=v;
+          const fav=(sl<entry)?(v-entry)/Math.abs(entry-sl):(entry-v)/Math.abs(entry-sl);
+          t[k]=Math.max(0,+(k==='mfe'?fav:-fav).toFixed(2));
+        } else if(k==='mae' && v!=null && !isNaN(v) && v<0){
+          t.mae=Math.abs(v);
+        }
+      });
+    });
     return base;
   }catch(e){
     const d = structuredClone(DEFAULTS);
