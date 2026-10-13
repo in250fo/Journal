@@ -195,6 +195,7 @@ const HELP_TEXTS={
   manualclose:['Cierres manuales','Analiza tus cierres antes del TP. Respeta tu criterio: si marcaste "limpio", fue buena decisión. Solo cuenta como coste los que marcaste con error.'],
   dolreach:['¿Llega al DOL?','De tus trades que no acabaron en stop, cada cuánto el precio llega a tu DOL final. Te dice si aguantar hasta el DOL compensa o conviene asegurar antes.'],
   beanalysis:['Análisis de BE','De tus salidas por BE saltado: cuántos moviste según plan vs por impulso, y cuántos habrían ido a TP (usando el MFE). Te dice si mover el BE pronto te cuesta ganadores.'],
+  setupquality:['Buenos vs malos setups','Recoge la justificación técnica que escribes en cada trade y si lo marcaste como buen o mal setup. Compara cómo rinden, separa habilidad de suerte (buen setup que perdió vs mal setup que ganó) y busca qué conceptos se repiten en tus buenos setups y cuáles en los malos.'],
   maeanalysis:['¿SL demasiado lejos?','Usa el MAE (cuánto fue el precio en contra) de tus ganadores para ver si tu stop está muy holgado. Si tus ganadores sufren poco antes de girarse, podrías ajustar el SL. Te avisa de no comerte las manipulaciones.'],
   movetype:['Origen del movimiento','Compara tu rendimiento según dónde empezó el movimiento: el impulso de apertura NY (9:30-10h) o el PO3 de la vela de 4h de las 10h. Te dice con qué estructura CRT ganas más.'],
   smt:['RS Scalp (SMT)','De las entradas por SMT que aparecieron (entraras o no): cuántas van a TP y si el timing respecto a la apertura NY influye. Sirve para validar esta subestrategia antes de confiar en ella.'],
@@ -590,6 +591,8 @@ function renderOverview(v, T){
       ${breakdownTable(breakdown(T,'setup'))}
     </div>
 
+    ${setupQualityCard(T)}
+
     ${autoInsights(T)}
   `;
   drawEquity('equityChart', T);
@@ -608,6 +611,150 @@ function breakdownTable(rows){
       <td class="${cls(r.r)}">${fmtR(r.r)}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
+}
+
+/* ---------- Análisis de setups: buenos vs malos ---------- */
+// Conceptos ICT/SMC/CRT que se buscan en tus justificaciones (texto sin acentos y en minúsculas).
+// [etiqueta, patrón, patrón que lo excluye (opcional)]
+const SETUP_CONCEPTS=[
+  ['FVG',/\bfvg|fair value gap|imbalance|desequilibrio/],
+  ['iFVG',/\bifvg|inverse fvg|inversion fvg|fvg invertid/],
+  ['Order block',/\bobs?\b|order ?block/],
+  ['Breaker',/breaker/],
+  ['Barrido de liquidez',/barri|sweep|swept|grab|toma de liquidez|stop hunt|caza de stops|purga/],
+  ['Liquidez BSL/SSL/EQH/EQL',/\bbsl\b|\bssl\b|\beqh\b|\beql\b|equal (highs|lows)|maximos iguales|minimos iguales/],
+  ['MSS / CHoCH',/\bmss\b|choch|cambio de estructura|market structure shift|change of character/],
+  ['CISD',/cisd|change in state/],
+  ['BOS',/\bbos\b|break of structure|ruptura de estructura|rotura de estructura/],
+  ['Desplazamiento',/desplaz|displacement/],
+  ['SMT',/\bsmt/],
+  ['OTE / Fibo',/\bote\b|fibo|\b0[.,]?(62|618|705|79)\b/],
+  ['Premium / Discount',/premium|discount|descuento|equilibri/],
+  ['PO3 / AMD',/\bpo3\b|power of (3|three)|\bamd\b|acumulaci|manipulaci|distribuci/],
+  ['CRT',/\bcrt\b|candle range/],
+  ['Killzone / apertura',/killzone|kill zone|silver bullet|apertura|\bopen\b|9[:.h]30/],
+  ['Turtle soup',/turtle/],
+  ['Opening gap (NWOG/NDOG)',/nwog|ndog|opening gap/],
+  ['BPR',/\bbpr\b|balanced price/],
+  ['DOL claro',/\bdol\b|draw on liquidity/],
+  ['Sesgo HTF a favor',/\bhtf\b|\bbias\b|sesgo|a favor de (la )?tendencia|alineado/,/contra ?tendencia|counter ?trend|contra (el )?(bias|sesgo|htf)/],
+  ['Contra tendencia',/contra ?tendencia|counter ?trend|contra (el )?(bias|sesgo|htf)/],
+  ['Noticias',/noticia|\bnews\b|\bcpi\b|fomc|\bnfp\b|\bppi\b/],
+  ['Sin confirmación',/sin confirm|no confirm|no espere|anticip|me adelant|precipit|antes de tiempo/],
+  ['FOMO / impaciencia',/fomo|ansiedad|aburri|revenge|venganza|por recuperar|impacien|sin paciencia/],
+  ['Rango / chop',/\brango\b|chop|lateral|consolidac|sin direccion/]
+];
+const SETUP_STOPWORDS=new Set('porque cuando donde desde hasta entre sobre antes despues tambien aunque pero estaba estaban estoy esta este esto estos estas habia hacia hecho hice entre entrada entro entre luego mientras otra otro otros otras para pero poco mucho muchos mismo misma tenia tengo tiene todo todos toda todas mucha nada siempre nunca porque quiza quizas ademas segun cuyo cual cuales sido solo tanto tras vez veces precio vela velas trade trades setup setups habia hubo podia puede pueden seria serian mejor peor bastante creo vale bien malo buena bueno mala como muy minuto minutos'.split(' '));
+function normTxt(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function setupConceptsOf(txt){
+  const n=normTxt(txt);
+  return SETUP_CONCEPTS.filter(([,re,excl])=>re.test(n) && !(excl&&excl.test(n))).map(([l])=>l);
+}
+function setupWordsOf(txt){
+  const words=normTxt(txt).split(/[^a-z0-9ñ]+/).filter(w=>w.length>=5 && !/^\d+$/.test(w) && !SETUP_STOPWORDS.has(w));
+  return [...new Set(words)];
+}
+
+function setupQualityCard(T){
+  const withText=T.filter(t=>(t.setupNote||'').trim());
+  const rated=T.filter(t=>t.setupQuality==='good'||t.setupQuality==='bad');
+  const unrated=withText.filter(t=>!t.setupQuality);
+  const head=`<h3>Buenos vs malos setups ${helpIcon("setupquality")}</h3>`;
+  if(!rated.length){
+    return `<div class="card" style="margin-top:14px">${head}
+      <p class="hint">Al final de cada trade tienes el apartado <b>Setup</b>: escribe la justificación técnica y márcalo como ✅ buen o ❌ mal setup. Con eso te digo cómo rinden unos y otros, cuánto es habilidad y cuánto suerte, y qué conceptos se repiten en tus buenos setups y en los malos.${unrated.length?` Ya tienes ${unrated.length} setup(s) escritos sin marcar.`:''}</p>
+    </div>`;
+  }
+  const good=rated.filter(t=>t.setupQuality==='good');
+  const bad=rated.filter(t=>t.setupQuality==='bad');
+  const eg=expectancy(good), eb=expectancy(bad);
+  const badPct=bad.length/rated.length*100;
+  const badWins=bad.filter(t=>t.result==='win');
+  const goodLosses=good.filter(t=>t.result==='loss');
+  const hasErr=t=>(t.flags||[]).some(f=>f!=='clean'&&f!=='good_pa');
+  const avgRisk=T.length?T.reduce((s,t)=>s+(t.riskUSD||0),0)/T.length:0;
+  const sumR=arr=>arr.reduce((s,t)=>s+(t.realizedR||0),0);
+  const sumPnl=arr=>arr.reduce((s,t)=>s+(t.pnl||0),0);
+
+  // Conceptos: cuántas veces salen en buenos vs malos, y cómo rinden los trades donde aparecen
+  const baseGood=good.length/rated.length;
+  const cRows=SETUP_CONCEPTS.map(([label])=>{
+    const tsAll=withText.filter(t=>setupConceptsOf(t.setupNote).includes(label));
+    const g=tsAll.filter(t=>t.setupQuality==='good').length;
+    const b=tsAll.filter(t=>t.setupQuality==='bad').length;
+    const nr=g+b, pGood=nr?g/nr:0;
+    let tag='';
+    if(nr>=2 && pGood>=Math.max(0.75,baseGood+0.15)) tag='good';
+    else if(nr>=2 && (1-pGood)>=Math.max(0.6,(1-baseGood)+0.15)) tag='bad';
+    return { label, n:tsAll.length, g, b, wr:winrate(tsAll), exp:expectancy(tsAll), tag };
+  }).filter(r=>r.n>0).sort((a,b)=>b.n-a.n);
+  const goodC=cRows.filter(r=>r.tag==='good').sort((a,b)=>b.g-a.g);
+  const badC=cRows.filter(r=>r.tag==='bad').sort((a,b)=>b.b-a.b);
+
+  // Palabras propias que repites (fuera del diccionario), por si usas tu propio vocabulario
+  const wc={};
+  rated.filter(t=>t.setupNote).forEach(t=>setupWordsOf(t.setupNote).forEach(w=>{
+    if(SETUP_CONCEPTS.some(([,re])=>re.test(w))) return;
+    wc[w]=wc[w]||{g:0,b:0}; wc[w][t.setupQuality==='good'?'g':'b']++;
+  }));
+  const words=Object.entries(wc).filter(([,c])=>c.g+c.b>=3);
+  const goodW=words.filter(([,c])=>c.g/(c.g+c.b)>=Math.max(0.8,baseGood+0.15)).sort((a,b)=>b[1].g-a[1].g).slice(0,5);
+  const badW=words.filter(([,c])=>c.b/(c.g+c.b)>=Math.max(0.6,(1-baseGood)+0.15)).sort((a,b)=>b[1].b-a[1].b).slice(0,5);
+
+  const ins=[];
+  if(good.length&&bad.length){
+    const diff=eg-eb;
+    if(diff>0) ins.push({c:'',t:`Tus <b>buenos setups</b> rinden <b>${fmtR(eg)}</b> por trade y los <b>malos</b> <b>${fmtR(eb)}</b>: ${fmtR(diff)} de diferencia. Cada mal setup que te ahorras vale de media ~${fmt$(diff*avgRisk)}. Tu criterio separa bien — el trabajo es <b>filtrar</b>.`});
+    else ins.push({c:'warn',t:`Ahora mismo tus "malos" setups rinden igual o mejor que los buenos (${fmtR(eb)} vs ${fmtR(eg)}). Con pocos datos puede ser ruido; si se mantiene, tu forma de juzgar los setups no está separando bien: relee las justificaciones de los que ganaron y de los que perdieron.`});
+  } else if(good.length>=5 && !bad.length){
+    ins.push({c:'warn',t:`Todos tus setups marcados son buenos. Puede ser real, pero sé exigente: si nunca marcas uno como malo, no hay con qué comparar y el análisis pierde valor.`});
+  }
+  if(bad.length){
+    const cost=sumR(bad);
+    ins.push({c:badPct>=30?'bad':'warn',t:`El <b>${fmt(badPct,0)}%</b> de tus trades marcados (${bad.length} de ${rated.length}) fueron malos setups${cost<0?` y te han costado <b>${fmtR(cost)}</b> (${fmt$(sumPnl(bad))})`:''}.${badPct>=30?` Es casi 1 de cada ${Math.max(2,Math.round(100/badPct))} entradas sin una justificación sólida: es la fuga más fácil de cerrar.`:' Mantenlo bajo: cada uno que evitas es R que no regalas.'}`});
+  }
+  if(badWins.length) ins.push({c:'warn',t:`<b>${badWins.length} mal${badWins.length>1?'es':''} setup${badWins.length>1?'s':''} salió ganador</b> (${fmtR(sumR(badWins))}). Eso es <b>suerte, no habilidad</b>: el mercado te pagó por algo que no quieres repetir. No dejes que estos trades refuercen el hábito.`});
+  if(goodLosses.length){
+    const ge=goodLosses.filter(hasErr).length;
+    ins.push({c:'',t:`<b>${goodLosses.length} buen${goodLosses.length>1?'os':''} setup${goodLosses.length>1?'s':''} acabó en SL</b>. Si la ejecución fue limpia, es varianza normal del sistema: no cambies tus reglas por ellos.${ge?` Ojo: ${ge} de ellos tenían errores de ejecución marcados — ahí el fallo no fue la idea sino cómo la ejecutaste.`:''}`});
+  }
+  if(goodC.length) ins.push({c:'',t:`En tus <b>buenos setups</b> se repite: ${goodC.slice(0,5).map(r=>`<b>${r.label}</b> (${r.g})`).join(', ')}. Esto es tu checklist real: lo que aparece cuando lo haces bien.`});
+  if(badC.length) ins.push({c:'bad',t:`En tus <b>malos setups</b> aparece: ${badC.slice(0,5).map(r=>`<b>${r.label}</b> (${r.b})`).join(', ')}. Trátalo como <b>bandera roja</b> antes de entrar.`});
+  if(goodW.length||badW.length) ins.push({c:'',t:`Otras palabras que repites — ${goodW.length?`en buenos: ${goodW.map(([w,c])=>`<b>${escHtml(w)}</b> (${c.g})`).join(', ')}`:''}${goodW.length&&badW.length?' · ':''}${badW.length?`en malos: ${badW.map(([w,c])=>`<b>${escHtml(w)}</b> (${c.b})`).join(', ')}`:''}.`});
+  if(unrated.length) ins.push({c:'warn',t:`Tienes <b>${unrated.length} setup${unrated.length>1?'s':''} escrito${unrated.length>1?'s':''} sin marcar</b>. Márcalo${unrated.length>1?'s':''} como bueno o malo para que entre${unrated.length>1?'n':''} en el análisis.`});
+
+  const list=[...rated].sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
+  return `<div class="card" style="margin-top:14px">${head}
+    <div class="grid g-4" style="gap:10px">
+      <div class="calc-out" style="border-color:var(--green-dim)"><div class="label" style="font-size:10px;color:var(--green);font-weight:600">BUENOS SETUPS</div><div class="big ${cls(eg)}">${good.length?fmtR(eg):'—'}</div><div class="hint" style="margin-top:4px">${good.length} trades · WR ${fmt(winrate(good),0)}%</div></div>
+      <div class="calc-out" style="border-color:var(--red-dim)"><div class="label" style="font-size:10px;color:var(--red);font-weight:600">MALOS SETUPS</div><div class="big ${cls(eb)}">${bad.length?fmtR(eb):'—'}</div><div class="hint" style="margin-top:4px">${bad.length} trades · WR ${fmt(winrate(bad),0)}%</div></div>
+      <div class="calc-out"><div class="label" style="font-size:10px;color:var(--amber);font-weight:600">MAL SETUP QUE GANÓ</div><div class="big">${badWins.length}</div><div class="hint" style="margin-top:4px">suerte${badWins.length?' · '+fmtR(sumR(badWins)):''}</div></div>
+      <div class="calc-out"><div class="label" style="font-size:10px;color:var(--ink-faint);font-weight:600">BUEN SETUP QUE PERDIÓ</div><div class="big">${goodLosses.length}</div><div class="hint" style="margin-top:4px">varianza${goodLosses.length?' · '+fmtR(sumR(goodLosses)):''}</div></div>
+    </div>
+    <div style="margin-top:14px">${ins.map(i=>`<div class="insight ${i.c}">${i.t}</div>`).join('')}</div>
+    ${cRows.length?`<div class="table-wrap" style="border:none;margin-top:6px"><table style="min-width:auto">
+      <thead><tr><th>Concepto</th><th>En buenos</th><th>En malos</th><th>N</th><th>WR</th><th>Exp</th></tr></thead>
+      <tbody>${cRows.slice(0,12).map(r=>`<tr>
+        <td style="font-family:var(--sans);font-weight:600">${r.label}${r.tag==='good'?' <span class="tag ok">señal</span>':r.tag==='bad'?' <span class="tag bad">bandera roja</span>':''}</td>
+        <td class="pos">${r.g}</td>
+        <td class="${r.b?'neg':''}">${r.b}</td>
+        <td>${r.n}</td>
+        <td>${fmt(r.wr,0)}%</td>
+        <td class="${cls(r.exp)}">${fmtR(r.exp)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`:''}
+    <h3 style="margin-top:16px">Todos tus setups <span style="color:var(--ink-faint);text-transform:none;font-weight:400">toca uno para abrir el trade</span></h3>
+    <div style="max-height:360px;overflow:auto;padding-right:4px">
+      ${list.map(t=>`<div class="insight ${t.setupQuality==='bad'?'bad':''}" style="cursor:pointer;margin-bottom:8px" onclick="editTrade('${t.id}')">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:${t.setupNote?'4px':'0'}">
+          <span><b>${t.setupQuality==='good'?'✅':'❌'} ${t.date}</b> · ${escHtml(t.symbol||'')} · ${escHtml(t.setup||'')}</span>
+          <span style="font-family:var(--mono);font-weight:700" class="${cls(t.realizedR)}">${fmtR(t.realizedR)}</span>
+        </div>
+        ${t.setupNote?`<div style="white-space:pre-wrap">${escHtml(t.setupNote)}</div>`:'<div class="hint">sin justificación escrita</div>'}
+      </div>`).join('')}
+    </div>
+    <div class="hint" style="margin-top:8px">Basado en ${rated.length} trade${rated.length>1?'s':''} marcado${rated.length>1?'s':''}. ${rated.length<20?'⚠ Con menos de 20, tómalo como pistas, no como conclusiones.':''}</div>
+  </div>`;
 }
 
 function autoInsights(T){
@@ -1474,6 +1621,7 @@ function calDayDetail(dateStr){
         </div>
         ${errs.length?`<div style="margin-top:6px">${errs.map(f=>`<span class="tag bad" style="margin:1px">${FLAG_LABELS[f]||f}</span>`).join('')}</div>`:''}
         ${t.note?`<div class="hint" style="margin-top:6px">${t.note}</div>`:''}
+        ${(t.setupNote||t.setupQuality)?`<div class="insight ${t.setupQuality==='bad'?'bad':t.setupQuality==='good'?'':'warn'}" style="margin:8px 0 0;padding:9px 12px;font-size:12px"><b>${t.setupQuality==='good'?'✅ Buen setup':t.setupQuality==='bad'?'❌ Mal setup':'Setup (sin marcar)'}</b>${t.setupNote?' — '+escHtml(t.setupNote):''}</div>`:''}
         ${(t.images&&t.images.length)?`<div class="thumb-row">${t.images.map(img=>`<img class="thumb" src="${img}" onclick="lightbox('${img}')">`).join('')}</div>`:''}
       </div>`;
     }).join('')||'<p class="hint">Sin trades este día.</p>'}
@@ -1510,7 +1658,7 @@ function renderJournal(v, T){
         return `<tr>
           <td>${t.date}</td>
           <td>${t.symbol||'—'}${(t.images&&t.images.length)?` <span title="${t.images.length} imagen(es)" style="opacity:.6">📎</span>`:''}</td>
-          <td style="font-family:var(--sans)">${t.setup||'—'}</td>
+          <td style="font-family:var(--sans)">${t.setup||'—'}${t.setupQuality==='good'?' <span title="Buen setup">🟢</span>':t.setupQuality==='bad'?' <span title="Mal setup">🔴</span>':''}</td>
           <td>${t.session||'—'}</td>
           <td>${fmt(t.plannedR,1)}</td>
           <td class="${cls(t.realizedR)}">${fmtR(t.realizedR)}</td>
@@ -1889,14 +2037,26 @@ function tradeModal(t){
       </div>
     </div>
     <div class="hint" style="margin:-6px 0 12px">DOL en R = la distancia de tu DOL final respecto a tu entrada, en R. Lo sabes al entrar (dónde está el DOL / dónde tu stop). Es el dato real de dónde está tu objetivo, no dónde llegó el precio.</div>
-    <div class="field"><label>R máximo alcanzado (MFE) <span class="hint">a favor</span></label>
-      <input type="number" id="f_mfe" step="0.1" value="${e.mfe??''}" placeholder="ex. 2.3">
+    <div class="field-row">
+      <div class="field"><label>Precio máx. a favor (MFE) <span class="hint">nivel de precio</span></label>
+        <input type="number" step="0.01" id="f_mfePrice" value="${e.mfePrice??''}" placeholder="ej. 29480" oninput="this.dataset.touched='1';recalcExcursions()">
+      </div>
+      <div class="field"><label>R máximo alcanzado <span class="hint">se calcula solo</span></label>
+        <div class="rr-out" id="f_mfeOut" style="background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:var(--mono);font-size:13px;min-height:40px">—</div>
+      </div>
     </div>
-    <div class="hint" style="margin:-6px 0 12px">MFE = hasta qué R se movió el precio a tu favor, aunque no lo cobraras. <b>En un SL también importa</b>: te dice si acertaste dirección pero te sacaron, o si la entrada estaba mal.</div>
-    <div class="field"><label>R máximo en contra (MAE) <span class="hint">cuánto sufrió antes de resolverse</span></label>
-      <input type="number" id="f_mae" step="0.1" min="0" value="${e.mae??''}" placeholder="ex. 0.4">
-      <div class="hint" style="margin-top:5px">Cuánto se movió el precio EN CONTRA (en R positivos) antes de irse a favor o al stop. Sirve para saber si tu SL está demasiado lejos. Ej: si pusiste SL a 1R pero el precio solo fue 0,4R en contra antes de ganar, pon 0,4.</div>
+    <input type="hidden" id="f_mfe" value="${e.mfe??''}">
+    <div class="hint" style="margin:-6px 0 12px">Pon el precio más lejano al que llegó <b>a tu favor</b> (aunque no lo cobraras) y con tu entrada y SL se calcula el R. <b>En un SL también importa</b>: te dice si acertaste dirección pero te sacaron, o si la entrada estaba mal.</div>
+    <div class="field-row">
+      <div class="field"><label>Precio máx. en contra (MAE) <span class="hint">nivel de precio</span></label>
+        <input type="number" step="0.01" id="f_maePrice" value="${e.maePrice??''}" placeholder="ej. 29340" oninput="this.dataset.touched='1';recalcExcursions()">
+      </div>
+      <div class="field"><label>R máximo en contra <span class="hint">se calcula solo</span></label>
+        <div class="rr-out" id="f_maeOut" style="background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:var(--mono);font-size:13px;min-height:40px">—</div>
+      </div>
     </div>
+    <input type="hidden" id="f_mae" value="${e.mae??''}">
+    <div class="hint" style="margin:-6px 0 12px">Pon el precio más lejano al que fue <b>en contra</b> antes de irse a favor o al stop. Sirve para saber si tu SL está demasiado lejos (ej: SL a 1R pero el precio solo fue 0,4R en contra antes de ganar).</div>
     <div class="field"><label>Flags de ejecución (marca lo que pasó)</label>
       <div class="chips" id="f_flags">
                 ${flagChipsHTML(flags)}
@@ -1907,6 +2067,14 @@ function tradeModal(t){
       <div class="img-drop" id="f_imgdrop" onclick="document.getElementById('f_imgInput').click()">📎 Toca para adjuntar imágenes (se comprimen solas)</div>
       <input type="file" id="f_imgInput" accept="image/*" multiple style="display:none" onchange="handleTradeImages(event)">
       <div class="thumb-row" id="f_thumbs"></div>
+    </div>
+    <div class="field"><label>Setup <span class="hint">justificación técnica de la entrada</span></label>
+      <textarea id="f_setupNote" rows="4" placeholder="Ej: barrido del high de Londres, MSS en 5m con desplazamiento, entrada en FVG de 1m en discount, SMT con ES, DOL en el high de 4h...">${escHtml(e.setupNote||'')}</textarea>
+      <div class="chips" id="f_setupQ" style="margin-top:8px">
+        <button type="button" class="chip" data-q="good" onclick="setSetupQuality('good')">✅ Buen setup</button>
+        <button type="button" class="chip" data-q="bad" onclick="setSetupQuality('bad')">❌ Mal setup</button>
+      </div>
+      <div class="hint" style="margin-top:6px">Juzga la <b>calidad de la idea</b>, no el resultado: un buen setup puede acabar en SL y uno malo puede salir bien por suerte. Así el análisis separa habilidad de suerte.</div>
     </div>
     <div class="modal-actions">
       ${t?`<button class="btn danger" onclick="deleteTrade('${t.id}')">Eliminar</button>`:''}
@@ -1927,7 +2095,23 @@ function tradeModal(t){
   };
   $$('#f_plan input[type=checkbox]').forEach(c=>c.addEventListener('change',updatePlanCount));
   updatePlanCount();
+  $('#modalBg')._setupQ=e.setupQuality||'';
+  setSetupQuality($('#modalBg')._setupQ, true);
+  recalcExcursions();
   onRealizedRChange();
+}
+
+// Marca el setup como bueno/malo (tocar el activo lo desmarca)
+function setSetupQuality(q, init){
+  const bg=$('#modalBg');
+  if(!init) q = (bg._setupQ===q) ? '' : q;
+  bg._setupQ=q;
+  $$('#f_setupQ .chip').forEach(c=>{
+    const on=c.dataset.q===q;
+    c.className='chip'+(on?(q==='good'?' on good':' on'):'');
+  });
+  const ta=$('#f_setupNote');
+  if(ta) ta.style.borderColor = q==='good'?'var(--green)':q==='bad'?'var(--red)':'';
 }
 
 // Deduce el resultado a partir del R realizado (single source of truth)
@@ -1981,7 +2165,46 @@ function recalcLevels(){
                      realizedEl.value=r.toFixed(2);
             }
      }
+     recalcExcursions();
      onRealizedRChange();
+}
+
+// Calcula el MFE y el MAE (en R) a partir del precio máximo a favor / en contra, usando entrada y SL.
+// El R se guarda en los campos ocultos f_mfe / f_mae, así todas las estadísticas siguen funcionando igual.
+function recalcExcursions(){
+     const entry=parseFloat($('#f_entryPrice')?.value);
+     const sl=parseFloat($('#f_slPrice')?.value);
+     const canCalc=!isNaN(entry) && !isNaN(sl) && entry!==sl;
+     const risk=canCalc?Math.abs(entry-sl):0;
+     const isLong=canCalc && sl<entry;
+     [['mfe','a favor'],['mae','en contra']].forEach(([k,side])=>{
+            const priceEl=$('#f_'+k+'Price'), hid=$('#f_'+k), out=$('#f_'+k+'Out');
+            if(!priceEl||!hid||!out) return;
+            const raw=priceEl.value.trim();
+            const price=parseFloat(raw);
+            if(raw===''||isNaN(price)){
+                     // Sin precio: si lo has borrado tú, se borra el R. Si es un trade antiguo (R puesto a mano), se respeta.
+                     if(priceEl.dataset.touched==='1') hid.value='';
+                     const old=parseFloat(hid.value);
+                     out.innerHTML=!isNaN(old)
+                            ? `<span style="font-weight:700">${fmt(old,2)}R</span> <span class="hint">· dato antiguo en R</span>`
+                            : `<span class="hint">—</span>`;
+                     return;
+            }
+            if(!canCalc){
+                     hid.value='';
+                     out.innerHTML=`<span class="hint">Pon entrada y SL para calcularlo</span>`;
+                     return;
+            }
+            const fav=isLong?(price-entry)/risk:(entry-price)/risk;   // + = a favor de tu dirección
+            let r=k==='mfe'?fav:-fav;
+            let warn='';
+            if(r<0){ warn=k==='mfe'?'Ese precio está en contra de tu entrada':'Ese precio está a tu favor, no en contra'; r=0; }
+            hid.value=r.toFixed(2);
+            const color=k==='mfe'?'var(--green)':'var(--red)';
+            out.innerHTML=`<span style="font-weight:700;color:${color}">${r>0?(k==='mfe'?'+':'-'):''}${fmt(r,2)}R</span> <span class="hint">· ${isLong?'long':'short'}</span>`
+                   +(warn?`<div class="hint" style="color:var(--amber);margin-top:3px">⚠ ${warn}. ¿Long o short bien puesto?</div>`:'');
+     });
 }
 
 // Al cambiar de cuenta, autoseleccionar su fase actual (si el usuario no ha forzado una)
@@ -2155,10 +2378,14 @@ function saveTrade(id){
     result11:existing?.result11||'',
     dolReached:$('#f_dolReached').value,
     dolR:parseFloat($('#f_dolR').value),
+    mfePrice:parseFloat($('#f_mfePrice').value),
+    maePrice:parseFloat($('#f_maePrice').value),
     mfe:parseFloat($('#f_mfe').value),
     mae:parseFloat($('#f_mae').value),
     flags:[...flags],
     note:$('#f_note').value.trim(),
+    setupNote:$('#f_setupNote').value.trim(),
+    setupQuality:$('#modalBg')._setupQ||'',
     images:[...($('#modalBg')._images||[])],
     planChecked:$$('#f_plan input[type=checkbox]').filter(c=>c.checked).map(c=>+c.dataset.plan)
   };
@@ -2566,6 +2793,15 @@ function buildAIReport(){
     L.push(`DOL: de ${withDol.length} trades no perdedores, el precio llegó al DOL final el ${pct(reached/withDol.length*100)}`);
     L.push('');
   }
+  // Calidad de setups (buenos vs malos)
+  const sqGood=T.filter(t=>t.setupQuality==='good'), sqBad=T.filter(t=>t.setupQuality==='bad');
+  if(sqGood.length||sqBad.length){
+    L.push('--- CALIDAD DE SETUPS (marcada por el trader) ---');
+    if(sqGood.length) L.push(`Buenos setups: ${sqGood.length} trades, exp ${fmtR(expectancy(sqGood))}, WR ${pct(winrate(sqGood))}, R acum ${fmtR(totalR(sqGood))}`);
+    if(sqBad.length) L.push(`Malos setups: ${sqBad.length} trades, exp ${fmtR(expectancy(sqBad))}, WR ${pct(winrate(sqBad))}, R acum ${fmtR(totalR(sqBad))}`);
+    L.push(`Buen setup que acabó en pérdida: ${sqGood.filter(t=>t.result==='loss').length} | Mal setup que salió ganador (suerte): ${sqBad.filter(t=>t.result==='win').length}`);
+    L.push('');
+  }
   // Lista de trades
   L.push('--- LISTA DE TRADES ---');
   T.forEach((t,i)=>{
@@ -2585,8 +2821,10 @@ function buildAIReport(){
     const errs=(t.flags||[]).filter(f=>f!=='clean'&&f!=='good_pa').map(f=>FLAG_LABELS[f]||f);
     if(errs.length) parts.push('FLAGS: '+errs.join('/'));
     else parts.push('limpio');
+    if(t.setupQuality) parts.push(t.setupQuality==='good'?'BUEN SETUP':'MAL SETUP');
     L.push(parts.filter(Boolean).join(' | '));
     if(t.note) L.push('   Nota: '+t.note);
+    if(t.setupNote) L.push('   Setup: '+t.setupNote);
   });
   L.push('');
   // No-trades y entradas no ejecutadas
