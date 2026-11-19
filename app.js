@@ -616,6 +616,62 @@ function renderOverview(v, T){
   drawCumulative('cumChart', T);
 }
 
+/* ---------- Análisis por hora de entrada (hora NY) ---------- */
+let TIME_BUCKET = 60; // minutos por bloque: 60 | 30
+function setTimeBucket(m){ TIME_BUCKET=m; render(); }
+function hhmm(min){ return String(Math.floor(min/60)).padStart(2,'0')+':'+String(min%60).padStart(2,'0'); }
+function timeBuckets(trades, size){
+  const map={};
+  trades.forEach(t=>{
+    if(!t.entryTime || !/^\d{1,2}:\d{2}$/.test(t.entryTime)) return;
+    const [h,m]=t.entryTime.split(':').map(Number);
+    const start=Math.floor((h*60+m)/size)*size;
+    (map[start]=map[start]||[]).push(t);
+  });
+  return Object.keys(map).map(Number).sort((a,b)=>a-b).map(start=>{
+    const ts=map[start];
+    return { start, label:hhmm(start)+'–'+hhmm(start+size), n:ts.length, exp:expectancy(ts), wr:winrate(ts), r:totalR(ts), pnl:totalPnl(ts) };
+  });
+}
+function timeAnalysisHTML(T){
+  const withTime=T.filter(t=>t.entryTime);
+  const toggle=`<div class="pill-row" style="margin-bottom:10px">
+    <button class="chip ${TIME_BUCKET===60?'on good':''}" onclick="setTimeBucket(60)">Por hora</button>
+    <button class="chip ${TIME_BUCKET===30?'on good':''}" onclick="setTimeBucket(30)">Bloques de 30 min</button>
+  </div>`;
+  if(withTime.length<3){
+    return `<p class="hint">Añade la <b>hora de entrada</b> (hora de NY) al registrar tus trades. Con 3+ te muestro a qué horas entras, cómo te va en cada una y cuál te conviene más. Ahora mismo: ${withTime.length} de ${T.length} trades con hora.</p>`;
+  }
+  const rows=timeBuckets(withTime,TIME_BUCKET);
+  const maxAbs=Math.max(...rows.map(r=>Math.abs(r.exp)),0.01);
+  const reliable=rows.filter(r=>r.n>=3);
+  let insight='';
+  if(reliable.length>=2){
+    const sorted=[...reliable].sort((a,b)=>b.exp-a.exp);
+    const best=sorted[0], worst=sorted[sorted.length-1];
+    insight=`Tu mejor franja es <b>${best.label}</b> (${fmtR(best.exp)} de expectancy, WR ${fmt(best.wr,0)}%, ${best.n} trades)`+
+      (worst.exp<0?` y la peor <b>${worst.label}</b> (${fmtR(worst.exp)} sobre ${worst.n} trades). Si se mantiene con más datos, plantéate no operar esa franja.`:`. La peor, <b>${worst.label}</b>, también es positiva (${fmtR(worst.exp)}): de momento no hay una hora mala clara.`);
+  } else {
+    insight=`Aún no hay ninguna franja con 3+ trades suficientes para comparar. Sigue registrando la hora.`;
+  }
+  const warn=withTime.length<20?` ⚠ Solo ${withTime.length} trades con hora: tómalo como pista, no como conclusión (con pocos trades por franja, un par de rachas cambian el ranking).`:'';
+  const missing=T.length-withTime.length;
+  return `${toggle}
+    <div class="table-wrap" style="border:none"><table style="min-width:auto">
+      <thead><tr><th>Hora NY</th><th>N</th><th>Exp</th><th>WR</th><th>R</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>`<tr ${r.n<3?'style="opacity:.55"':''}>
+        <td style="font-family:var(--sans);font-weight:600">${r.label}</td>
+        <td>${r.n}</td>
+        <td class="${cls(r.exp)}">${fmtR(r.exp)}</td>
+        <td>${fmt(r.wr,0)}%</td>
+        <td class="${cls(r.r)}">${fmtR(r.r)}</td>
+        <td style="min-width:90px"><div style="height:8px;border-radius:4px;width:${Math.max(4,Math.abs(r.exp)/maxAbs*100)}%;background:var(${r.exp>=0?'--green':'--red'},${r.exp>=0?'#3ddc97':'#ff5c6c'})"></div></td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <div class="insight ${reliable.length>=2&&insight.includes('plantéate')?'warn':''}" style="margin-top:12px">${insight}${warn}</div>
+    ${missing>0?`<p class="hint" style="margin-top:8px">${missing} trades sin hora no entran en este análisis. Las franjas con menos de 3 trades salen atenuadas y no cuentan para el ranking.</p>`:''}`;
+}
+
 function breakdownTable(rows){
   if(!rows.length) return `<p class="hint">Sin datos</p>`;
   return `<div class="table-wrap" style="border:none"><table style="min-width:auto">
@@ -902,6 +958,9 @@ function renderPerformance(v, T){
     <div class="grid g-2" style="margin-bottom:14px">
       <div class="card"><h3>Por sesión</h3>${breakdownTable(breakdown(T,'session'))}</div>
       <div class="card"><h3>Por símbolo</h3>${breakdownTable(breakdown(T,'symbol'))}</div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <h3>Por hora de entrada (hora NY)</h3>${timeAnalysisHTML(T)}
     </div>
     <div class="card" style="margin-bottom:14px">
       <h3>Por setup</h3>${breakdownTable(breakdown(T,'setup'))}
@@ -1669,7 +1728,7 @@ function renderJournal(v, T){
       <button class="chip ${JOURNAL_FILTER==='errors'?'on':''}" onclick="setJournalFilter('errors')">Con error</button>
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Fecha</th><th>Símbolo</th><th>Setup</th><th>Sesión</th><th>Plan R</th><th>Real R</th><th>P&L</th><th>Estado</th><th>Flags</th><th></th></tr></thead>
+      <thead><tr><th>Fecha</th><th>Símbolo</th><th>Setup</th><th>Sesión</th><th>Hora</th><th>Plan R</th><th>Real R</th><th>P&L</th><th>Estado</th><th>Flags</th><th></th></tr></thead>
       <tbody>${filtered.map(t=>{
         const errs=(t.flags||[]).filter(f=>f!=='clean'&&f!=='good_pa');
         return `<tr>
@@ -1677,6 +1736,7 @@ function renderJournal(v, T){
           <td>${t.symbol||'—'}${(t.images&&t.images.length)?` <span title="${t.images.length} imagen(es)" style="opacity:.6">📎</span>`:''}</td>
           <td style="font-family:var(--sans)">${t.setup||'—'}${t.setupQuality==='good'?' <span title="Buen setup">🟢</span>':t.setupQuality==='bad'?' <span title="Mal setup">🔴</span>':''}</td>
           <td>${t.session||'—'}</td>
+          <td>${t.entryTime||'—'}</td>
           <td>${fmt(t.plannedR,1)}</td>
           <td class="${cls(t.realizedR)}">${fmtR(t.realizedR)}</td>
           <td class="${cls(t.pnl)}">${fmt$(t.pnl)}</td>
@@ -1992,6 +2052,9 @@ function tradeModal(t){
     <div class="field-row">
       <div class="field"><label>Setup</label><select id="f_setup">${SETUPS.map(s=>`<option ${e.setup===s?'selected':''}>${s}</option>`).join('')}</select></div>
       <div class="field"><label>Sesión</label><select id="f_session">${SESSIONS.map(s=>`<option ${e.session===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Hora de entrada <span class="hint">hora de Nueva York (ET) · para el análisis por hora</span></label>
+      <input type="time" id="f_entryTime" value="${e.entryTime||''}">
     </div>
     <div class="field"><label>¿Dónde empezó el movimiento? <span class="hint">estructura CRT</span></label>
       <select id="f_moveType">
@@ -2379,6 +2442,7 @@ function saveTrade(id){
     symbol:$('#f_symbol').value.trim().toUpperCase(),
     setup:$('#f_setup').value,
     session:$('#f_session').value,
+    entryTime:$('#f_entryTime').value,
     moveType:$('#f_moveType').value,
     account:$('#f_account').value,
     phase: $('#f_phase').value || (()=>{ const acc=DB.accounts.find(a=>a.name===$('#f_account').value); return acc? (acc.phase==='Funded'?'funded':'eval') : ''; })(),
@@ -2823,6 +2887,7 @@ function buildAIReport(){
   L.push('--- LISTA DE TRADES ---');
   T.forEach((t,i)=>{
     const parts=[`#${i+1}`, t.date, t.symbol||'', t.session||'', t.setup||''];
+    if(t.entryTime) parts.push('hora NY '+t.entryTime);
     parts.push(`R plan ${t.plannedR??'?'} / R real ${t.realizedR??'?'}`);
     if(!isNaN(t.riskUSD)&&t.riskUSD) parts.push('riesgo $'+t.riskUSD);
     parts.push(t.result==='win'?'GANADOR':t.result==='loss'?'PERDEDOR':'BE');
