@@ -1904,6 +1904,17 @@ const PLAN_CHECKLIST=[
   'Buena entrada (ej. Inverse Fair Value Gap)',
   'Buen PA'
 ];
+// Checklist de reflexión del trade (marcado = sí)
+const TRADE_CHECKLIST = [
+  '¿Has entrado antes de tiempo?',
+  '¿Has arriesgado más de lo que dice tu plan?',
+  '¿Tomarías este trade 100 veces más sin importar el resultado?',
+  '¿Tenías un HIGH TIME FRAME y un DOL limpio?',
+  '¿Has estado nervioso durante el trade?',
+  '¿Has cerrado antes de tiempo?',
+  '¿Tomarías el trade en backtesting?',
+  '¿Te sientes bien con el trade y no con el resultado?'
+];
 const SETUPS=['Setup A','Setup B','Setup C','Pares','Otro'];
 const SYMBOLS=['MNQ','MES','MYM','M2K','MGC','MCL','M6E','NQ','ES','YM','GC','CL','EURAUD','Otro'];
 const SESSIONS=['Asia','Londres','New York'];
@@ -2033,10 +2044,11 @@ function tradeModal(t){
   const e=t||{};
   const flags=e.flags||['clean'];
   const planChecked=e.planChecked||[];
+  const checkChecked = e.checkChecked||[];
   $('#modalBg').innerHTML=`<div class="modal">
     <h2>${t?'Editar trade':'Nuevo trade'} <button class="btn ghost sm icon" onclick="closeModal()">✕</button></h2>
     <div class="plan-box">
-      <div class="plan-title">📋 Plan de trading — checklist antes de entrar</div>
+      <div class="plan-title">📋 Plan trading reglas</div>
       <div id="f_plan">
         ${PLAN_CHECKLIST.map((rule,i)=>`<label class="plan-item">
           <input type="checkbox" data-plan="${i}" ${planChecked.includes(i)?'checked':''}>
@@ -2044,6 +2056,15 @@ function tradeModal(t){
         </label>`).join('')}
       </div>
       <div class="plan-count" id="f_planCount"></div>
+    </div>
+    <div class="plan-box" style="margin-top:12px">
+      <div class="plan-title">✅ Checklist</div>
+      <div id="f_check">
+        ${TRADE_CHECKLIST.map((q,i) => `<label class="plan-item">
+          <input type="checkbox" data-check="${i}" ${checkChecked.includes(i) ? 'checked' : ''}>
+          <span>${q}</span>
+        </label>`).join('')}
+      </div>
     </div>
     <div class="field-row">
       <div class="field"><label>Fecha</label><input type="date" id="f_date" value="${e.date||todayISO()}"></div>
@@ -2468,7 +2489,8 @@ function saveTrade(id){
     setupNote:$('#f_setupNote').value.trim(),
     setupQuality:$('#modalBg')._setupQ||'',
     images:[...($('#modalBg')._images||[])],
-    planChecked:$$('#f_plan input[type=checkbox]').filter(c=>c.checked).map(c=>+c.dataset.plan)
+    planChecked:$$('#f_plan input[type=checkbox]').filter(c=>c.checked).map(c=>+c.dataset.plan),
+    checkChecked:$$('#f_check input[type=checkbox]').filter(c=>c.checked).map(c=>+c.dataset.check)
   };
   if(id){ const i=DB.trades.findIndex(x=>x.id===id); DB.trades[i]=t; }
   else DB.trades.push(t);
