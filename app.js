@@ -155,6 +155,11 @@ function load(){
     });
     return base;
   }catch(e){
+    // Si los datos no se pueden leer, NO los perdemos: guardamos el texto original aparte antes de empezar en blanco
+    try{
+      const raw = localStorage.getItem(STORE_KEY);
+      if(raw) localStorage.setItem(STORE_KEY+'_corrupt_'+Date.now(), raw);
+    }catch(_){}
     const d = structuredClone(DEFAULTS);
     d.firms = structuredClone(FIRM_PRESETS);
     return d;
@@ -168,7 +173,42 @@ function planSpec(firmName, planName, phase){
   const p = f.plans[planName];
   return { size:p.size, trailing:f.trailing||'eod', ...(p[phase==='Funded'?'funded':'eval']) };
 }
-function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }
+/* ---------- Guardado + copias de seguridad ----------
+   OJO: localStorage se borra al limpiar "cookies y datos de sitios" en el navegador.
+   Por eso, además de guardar aquí, se descarga una copia .json automática (1 vez al día
+   como mucho, solo si hay datos) y se mantiene una copia interna anterior por si falla algo. */
+const BACKUP_KEY = STORE_KEY+'_backup';
+const AUTO_DL_KEY = STORE_KEY+'_lastAutoDownload';
+
+function hasData(d){
+  return !!d && ((d.trades||[]).length || (d.accounts||[]).length || (d.payouts||[]).length || (d.propCosts||[]).length || (d.noTradeDays||[]).length);
+}
+function save(){
+  const json = JSON.stringify(DB);
+  // copia interna: guarda la versión anterior (con datos) antes de sobrescribir
+  try{
+    const prev = localStorage.getItem(STORE_KEY);
+    if(prev && prev !== json && hasData(JSON.parse(prev))) localStorage.setItem(BACKUP_KEY, prev);
+  }catch(_){}
+  localStorage.setItem(STORE_KEY, json);
+  autoBackupDownload(json);
+}
+function autoBackupDownload(json){
+  try{
+    if(!hasData(DB)) return;                       // nunca descargar una copia vacía
+    const today = todayISO();
+    if(localStorage.getItem(AUTO_DL_KEY) === today) return;   // máximo una vez al día
+    const blob = new Blob([JSON.stringify(DB,null,2)],{type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `crtdesk-auto-${today}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    localStorage.setItem(AUTO_DL_KEY, today);
+  }catch(_){}
+}
+// pedir al navegador que no expulse los datos por falta de espacio (no evita el borrado manual)
+try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(_){}
 
 /* ---------- helpers ---------- */
 const $ = (s,el=document)=>el.querySelector(s);
@@ -2993,5 +3033,24 @@ function init(){
   render();
   // consolidar migraciones (sesiones, cuentas) guardando una vez al arrancar
   try{ save(); }catch(e){}
+  showEmptyWarning();
+}
+
+// Aviso si el journal arranca vacío: puede ser que se hayan borrado los datos del navegador
+function showEmptyWarning(){
+  try{
+    if(hasData(DB)) return;
+    let backup = null;
+    try{ backup = JSON.parse(localStorage.getItem(BACKUP_KEY)||'null'); }catch(_){}
+    const div = document.createElement('div');
+    div.style.cssText = 'position:fixed;left:50%;top:60px;transform:translateX(-50%);z-index:9999;max-width:560px;width:calc(100% - 24px);background:#2a1d0a;border:1px solid #f59e0b;color:#fde68a;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.45;box-shadow:0 6px 24px rgba(0,0,0,.5)';
+    div.innerHTML = '<b>Journal vacío.</b> Si esperabas ver tus trades, importa tu última copia (<code>crtdesk-...json</code>, con el icono de subir). '
+      + (hasData(backup) ? '<br><button id="restoreBackupBtn" style="margin-top:8px;padding:6px 10px;border-radius:8px;border:0;background:#f59e0b;color:#111;font-weight:600;cursor:pointer">Restaurar copia interna</button> ' : '')
+      + '<button id="closeWarnBtn" style="margin-top:8px;padding:6px 10px;border-radius:8px;border:1px solid #f59e0b;background:transparent;color:#fde68a;cursor:pointer">Cerrar</button>';
+    document.body.appendChild(div);
+    div.querySelector('#closeWarnBtn').onclick = ()=>div.remove();
+    const rb = div.querySelector('#restoreBackupBtn');
+    if(rb) rb.onclick = ()=>{ DB = Object.assign(structuredClone(DEFAULTS), backup); save(); render(); div.remove(); toast('Copia interna restaurada'); };
+  }catch(_){}
 }
 init();
